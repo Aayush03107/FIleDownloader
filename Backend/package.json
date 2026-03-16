@@ -9,7 +9,7 @@
     "express": "^5.2.1",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.2.3",
+    "mongoose": "^9.3.0",
     "qrcode": "^1.5.4",
     "redi": "^0.1.0",
     "redis": "^5.11.0"
