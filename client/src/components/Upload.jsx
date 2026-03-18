@@ -3,15 +3,19 @@ import axios from "axios";
 import {
   Copy,
   UploadCloud,
-  File,
+  File as FileIcon,
   CheckCircle,
   Loader2,
   Share2,
   RefreshCcw,
   Hash,
+  X,
+  Type,
 } from "lucide-react";
 
 function Upload() {
+  const [textInput, setTextInput] = useState("");
+  const [textFileName, setTextFileName] = useState(""); // Custom file name for text
   const [file, setFile] = useState(null);
   const [password, setPassword] = useState("");
 
@@ -29,9 +33,18 @@ function Upload() {
 
   const [progress, setProgress] = useState(0);
 
-  // Refs for cancellation and cleanup
+  // Refs
   const abortControllerRef = useRef(null);
-  const uploadMetaRef = useRef(null); // Stores id/key to tell backend what to delete
+  const uploadMetaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Format file sizes clearly
+  const formatSize = (bytes) => {
+    if (bytes === 0) return "0 Bytes";
+    if (bytes < 1024) return `${bytes} Bytes`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
 
   // 1. Restore state after refresh
   useEffect(() => {
@@ -40,17 +53,11 @@ function Upload() {
 
     const data = JSON.parse(saved);
 
-    if (data.uploading) {
+    if (data.uploading || Date.now() > data.expiry) {
       localStorage.removeItem("uploadData");
       return;
     }
 
-    if (Date.now() > data.expiry) {
-      localStorage.removeItem("uploadData");
-      return;
-    }
-
-    // Set all states from storage
     setFileId(data.id);
     setQrCode(data.qrCode);
     setDownloadLink(data.link);
@@ -64,7 +71,6 @@ function Upload() {
   useEffect(() => {
     if (!expiryTime) return;
 
-    // Check every 10 seconds if the file has expired
     const interval = setInterval(() => {
       if (Date.now() > expiryTime) {
         clearInterval(interval);
@@ -77,7 +83,6 @@ function Upload() {
   }, [expiryTime]);
 
   const cancelUpload = async () => {
-    // 1. Stop the browser upload immediately
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -86,7 +91,6 @@ function Upload() {
     setLoading(false);
     setProgress(0);
 
-    // 2. Tell the backend to delete the DB record and Backblaze chunks
     if (uploadMetaRef.current) {
       try {
         await axios.post(
@@ -103,8 +107,27 @@ function Upload() {
   };
 
   const handleUpload = async () => {
-    if (!file || !password) {
-      setStatus("Please select a file and enter a password.");
+    let activeFile = file;
+
+    // --- BULLETPROOF TEXT-TO-FILE CONVERSION ---
+    if (!activeFile && textInput.trim()) {
+      let finalName = textFileName.trim() || "shared-message.txt";
+      if (!finalName.includes(".")) {
+        finalName += ".txt";
+      }
+
+      const textBlob = new Blob([textInput], {
+        type: "text/plain;charset=utf-8",
+      });
+
+      activeFile = new File([textBlob], finalName, {
+        type: "text/plain",
+        lastModified: Date.now(),
+      });
+    }
+
+    if (!activeFile || !password) {
+      setStatus("Please provide a file or text content, and a password.");
       return;
     }
 
@@ -112,22 +135,20 @@ function Upload() {
     setProgress(0);
     setStatus("Initializing...");
 
-    // Create a new AbortController for this upload
     abortControllerRef.current = new AbortController();
     const reqConfig = { signal: abortControllerRef.current.signal };
 
     try {
-      const fileSizeMB = file.size / (1024 * 1024);
+      const fileSizeMB = activeFile.size / (1024 * 1024);
       let expiry = fileSizeMB < 10 ? 3600 : 86400; // 3600s = 1 hr, 86400s = 1 day
 
-      // Request pre-signed URL/Multipart details
       const res = await axios.post(
         "http://localhost:3000/geturl",
         {
-          fileName: file.name,
-          fileType: file.type,
+          fileName: activeFile.name,
+          fileType: activeFile.type,
           password: password,
-          filesize: file.size,
+          filesize: activeFile.size,
           expiry: expiry,
         },
         reqConfig,
@@ -135,7 +156,6 @@ function Upload() {
 
       const { strategy, uploadUrl, id, qrDataUrl, partsize, key } = res.data;
 
-      // Save metadata so we can delete it if the user clicks cancel
       uploadMetaRef.current = {
         id,
         key,
@@ -147,9 +167,9 @@ function Upload() {
       let expireTime = Date.now() + expiry * 1000;
 
       if (strategy === "single") {
-        await axios.put(uploadUrl, file, {
+        await axios.put(uploadUrl, activeFile, {
           ...reqConfig,
-          headers: { "Content-Type": file.type },
+          headers: { "Content-Type": activeFile.type },
           onUploadProgress: (e) => {
             const percent = Math.round((e.loaded * 100) / e.total);
             setProgress(percent);
@@ -158,7 +178,7 @@ function Upload() {
         });
       } else if (strategy === "multipart") {
         const uploadId = uploadUrl;
-        const totalParts = Math.ceil(file.size / partsize);
+        const totalParts = Math.ceil(activeFile.size / partsize);
 
         const multiRes = await axios.post(
           "http://localhost:3000/multipart",
@@ -172,15 +192,15 @@ function Upload() {
 
         for (let i = 0; i < urls.length; i++) {
           const start = i * partsize;
-          const end = Math.min(start + partsize, file.size);
-          const chunk = file.slice(start, end);
+          const end = Math.min(start + partsize, activeFile.size);
+          const chunk = activeFile.slice(start, end);
 
           const chunkRes = await axios.put(urls[i], chunk, {
             ...reqConfig,
             onUploadProgress: (e) => {
               const currentOverallLoaded = totalBytesUploaded + e.loaded;
               const percent = Math.round(
-                (currentOverallLoaded * 100) / file.size,
+                (currentOverallLoaded * 100) / activeFile.size,
               );
               setProgress(percent);
               setStatus(`Uploading part ${i + 1}/${totalParts}`);
@@ -201,7 +221,6 @@ function Upload() {
         );
       }
 
-      // SAVE EVERYTHING TO STATE AND LOCALSTORAGE
       setFileId(id);
       setQrCode(qrDataUrl);
       setDownloadLink(finalLink);
@@ -222,7 +241,7 @@ function Upload() {
 
       setReady(true);
       setStatus("");
-      uploadMetaRef.current = null; // Clear meta on success
+      uploadMetaRef.current = null;
     } catch (err) {
       if (axios.isCancel(err)) {
         console.log("Upload cancelled successfully");
@@ -244,6 +263,8 @@ function Upload() {
   const uploadAnother = () => {
     localStorage.removeItem("uploadData");
     setFile(null);
+    setTextInput("");
+    setTextFileName("");
     setPassword("");
     setFileId("");
     setQrCode("");
@@ -254,8 +275,22 @@ function Upload() {
     setExpiryTime(null);
   };
 
-  // Determine user-friendly text for expiry
+  // Drag and drop handlers for the single box
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFile(e.dataTransfer.files[0]);
+    }
+  };
+
   const expiryText = initialTime === 3600 ? "in 1 hour" : "in 1 day";
+  const calculatedTextSize = formatSize(new Blob([textInput]).size);
 
   return (
     <div
@@ -297,62 +332,154 @@ function Upload() {
               Secure Upload
             </h2>
             <p style={{ color: "#64748b", margin: "4px 0 0" }}>
-              Encrypted file sharing made simple
+              Encrypted file & text sharing made simple
             </p>
           </div>
 
+          {/* SINGLE UNIFIED INPUT BOX */}
           <div
-            className="file-drop-area"
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
             style={{
               border: "2px dashed #e2e8f0",
               borderRadius: "12px",
-              padding: "32px",
-              textAlign: "center",
-              cursor: "pointer",
-              position: "relative",
+              padding: "16px",
+              background: "#fafafa",
               marginBottom: "20px",
+              position: "relative",
             }}
           >
+            {/* Hidden file input triggered by the button */}
             <input
               type="file"
-              style={{
-                position: "absolute",
-                inset: 0,
-                opacity: 0,
-                cursor: "pointer",
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files[0]) setFile(e.target.files[0]);
               }}
-              onChange={(e) => setFile(e.target.files[0])}
             />
+
             {file ? (
+              // --- FILE SELECTED UI ---
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: "8px",
+                  padding: "16px 0",
+                  position: "relative",
                 }}
               >
-                <File size={40} color="#6366f1" />
-                <p style={{ fontWeight: "600", color: "#1e293b", margin: 0 }}>
+                <button
+                  onClick={() => setFile(null)}
+                  style={{
+                    position: "absolute",
+                    top: "-8px",
+                    right: "-8px",
+                    background: "#ef4444",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: "28px",
+                    height: "28px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                  title="Remove File"
+                >
+                  <X size={16} />
+                </button>
+                <FileIcon size={48} color="#6366f1" />
+                <p
+                  style={{
+                    fontWeight: "600",
+                    color: "#1e293b",
+                    margin: "8px 0 0",
+                  }}
+                >
                   {file.name}
                 </p>
                 <p style={{ fontSize: "0.85rem", color: "#64748b", margin: 0 }}>
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {formatSize(file.size)}
                 </p>
               </div>
             ) : (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "12px",
-                }}
-              >
-                <UploadCloud size={40} color="#cbd5e1" />
-                <p style={{ color: "#64748b", margin: 0 }}>
-                  Drag & drop or click to select
-                </p>
+              // --- TEXT OR BROWSE UI ---
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {textInput.length > 0 && (
+                  <input
+                    type="text"
+                    placeholder="Optional text file name (e.g. secure.txt)"
+                    value={textFileName}
+                    onChange={(e) => setTextFileName(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid #e2e8f0",
+                      marginBottom: "12px",
+                      boxSizing: "border-box",
+                      fontSize: "0.85rem",
+                    }}
+                  />
+                )}
+                <textarea
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  placeholder="Paste secure text, or drag & drop a file here..."
+                  style={{
+                    width: "100%",
+                    minHeight: "100px",
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    resize: "none",
+                    fontSize: "0.95rem",
+                    color: "#1e293b",
+                    fontFamily: "inherit",
+                    boxSizing: "border-box",
+                  }}
+                />
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    borderTop: "1px solid #e2e8f0",
+                    paddingTop: "12px",
+                    marginTop: "8px",
+                  }}
+                >
+                  <p
+                    style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}
+                  >
+                    {textInput.length > 0
+                      ? `Estimated size: ${calculatedTextSize}`
+                      : "Or select a file directly:"}
+                  </p>
+                  <button
+                    onClick={() => fileInputRef.current.click()}
+                    style={{
+                      background: "white",
+                      border: "1px solid #e2e8f0",
+                      padding: "8px 14px",
+                      borderRadius: "8px",
+                      color: "#475569",
+                      fontSize: "0.85rem",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <UploadCloud size={16} /> Browse
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -367,7 +494,7 @@ function Upload() {
                 marginBottom: "8px",
               }}
             >
-              File Password
+              Encryption Password
             </label>
             <input
               type="password"
@@ -386,7 +513,7 @@ function Upload() {
 
           <button
             onClick={handleUpload}
-            disabled={loading || !file || !password}
+            disabled={loading || !password || (!file && !textInput.trim())}
             style={{
               width: "100%",
               padding: "14px",
@@ -395,11 +522,16 @@ function Upload() {
               color: "white",
               border: "none",
               fontWeight: "600",
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor:
+                loading || !password || (!file && !textInput.trim())
+                  ? "not-allowed"
+                  : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: "10px",
+              opacity:
+                loading || !password || (!file && !textInput.trim()) ? 0.7 : 1,
             }}
           >
             {loading ? (
@@ -526,7 +658,7 @@ function Upload() {
               marginBottom: "20px",
             }}
           >
-            <Hash size={14} /> File ID:{" "}
+            <Hash size={14} /> ID:{" "}
             <span
               style={{
                 fontWeight: "bold",
@@ -557,7 +689,7 @@ function Upload() {
                 margin: "0",
               }}
             >
-              File expires {expiryText} automatically
+              Content expires {expiryText} automatically
             </p>
           </div>
 
