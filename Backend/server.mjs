@@ -1,5 +1,6 @@
 import express from "express"
 import dotenv from "dotenv"
+import "./BullMq/Workers.mjs";
 import {route as getPreUrlRoute} from "./routes/getpreurl.mjs"
 import {route as downloadRoute} from "./routes/download.mjs"
 import {route as multipartRoute} from "./routes/mulipart.mjs"

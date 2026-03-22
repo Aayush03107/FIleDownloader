@@ -17,11 +17,12 @@ export const route = Router();
 
 route.post('/geturl',rate, async (req, res) => {
   try {
-    const {password,filesize,expiry} = req.body;
+    const { password, filesize, expiry, fileName } = req.body;
     if (!filesize) return res.status(400).json({ message: "FileSize required" });
 
+    const safeName = fileName ? fileName.replace(/\s+/g, '-') : 'file.txt';
     const id = generateId();
-    const key = `uploads/${id}`;
+    const key = `uploads/${id}_${safeName}`;
     let uploadUrl;
     let strategy = 'multipart';
     let partsize;
@@ -44,7 +45,7 @@ route.post('/geturl',rate, async (req, res) => {
       strategy = 'single';
       partsize = null;
     }
-    console.log(key);
+    // console.log(key);
     const hashedpassword = bcrypt.hashSync(password, 10);
     const qrDataUrl = await QRCode.toDataURL(`${process.env.FRONTEND_URL}/download/${id}`);
     try {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import toast from "react-hot-toast";
 import axios from "axios";
 import {
   Copy,
@@ -112,7 +113,7 @@ function Upload() {
       try {
         await axios.post(
           "http://localhost:3000/cancel-upload",
-          uploadMetaRef.current
+          uploadMetaRef.current,
         );
       } catch (err) {
         console.error("Failed to clean up server data", err);
@@ -175,7 +176,7 @@ function Upload() {
           onUploadProgress: (e) => {
             const currentOverallLoaded = totalBytesUploaded + e.loaded;
             const percent = Math.round(
-              (currentOverallLoaded * 100) / activeFile.size
+              (currentOverallLoaded * 100) / activeFile.size,
             );
             setProgress(percent);
             setStatus(`Uploading part ${i + 1}/${totalParts}`);
@@ -207,7 +208,7 @@ function Upload() {
           key: meta.key,
           parts: completedParts,
         },
-        reqConfig
+        reqConfig,
       );
 
       localStorage.removeItem("resumeData");
@@ -230,7 +231,7 @@ function Upload() {
           expiry: expireTime,
           qrCode: meta.qrCode,
           initialTime: expiry,
-        })
+        }),
       );
 
       setReady(true);
@@ -243,6 +244,7 @@ function Upload() {
       } else {
         console.error(err);
         setStatus("Resume failed. Try again.");
+        toast.error("Failed to resume upload!");
       }
     } finally {
       if (!isPausedRef.current) setLoading(false);
@@ -306,7 +308,7 @@ function Upload() {
           filesize: activeFile.size,
           expiry: expiry,
         },
-        reqConfig
+        reqConfig,
       );
 
       const { strategy, uploadUrl, id, qrDataUrl, partsize, key } = res.data;
@@ -323,7 +325,7 @@ function Upload() {
             fileName: activeFile.name,
             qrCode: qrDataUrl,
             timestamp: Date.now(),
-          })
+          }),
         );
       }
 
@@ -354,7 +356,7 @@ function Upload() {
         const multiRes = await axios.post(
           "http://localhost:3000/multipart",
           { key, uploadId, parts: totalParts },
-          reqConfig
+          reqConfig,
         );
 
         const urls = multiRes.data.urls;
@@ -377,7 +379,7 @@ function Upload() {
             onUploadProgress: (e) => {
               const currentOverallLoaded = totalBytesUploaded + e.loaded;
               const percent = Math.round(
-                (currentOverallLoaded * 100) / activeFile.size
+                (currentOverallLoaded * 100) / activeFile.size,
               );
               setProgress(percent);
               setStatus(`Uploading part ${i + 1}/${totalParts}`);
@@ -402,7 +404,7 @@ function Upload() {
         await axios.post(
           "http://localhost:3000/completeMultipart",
           { uploadId, key, parts: uploadedPartsList },
-          reqConfig
+          reqConfig,
         );
 
         localStorage.removeItem("resumeData");
@@ -423,7 +425,7 @@ function Upload() {
           link: finalLink,
           expiry: expireTime,
           initialTime: expiry,
-        })
+        }),
       );
 
       setReady(true);
@@ -436,6 +438,11 @@ function Upload() {
       } else {
         console.error(err);
         setStatus("Upload failed. Try again.");
+        if (err.response?.status === 429) {
+          toast.error("Too many uploads! Please wait an hour.");
+        } else {
+          toast.error("Upload failed! Check your connection.");
+        }
       }
     } finally {
       if (!isPausedRef.current) setLoading(false);

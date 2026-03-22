@@ -1,7 +1,7 @@
 import { connection } from '../BackBlaze/redisClient.mjs';
 
 const WINDOW_SIZE = 60*1000*60;
-const MAX_REQUEST = 5;
+const MAX_REQUEST = 1;
 
 export const slidingWindowLimiter = async (key) => {
   const now = Date.now();

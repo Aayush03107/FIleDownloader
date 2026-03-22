@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import axios from "axios";
 import { DownloadCloud, FileKey, Loader2 } from "lucide-react";
 import { useParams } from "react-router-dom";
@@ -20,19 +21,19 @@ function Download() {
 
   const handleDownload = async () => {
     if (!fileId || !password) {
-      setStatus("Please enter both File ID and password.");
+      toast.error("Please enter both File ID and password.");
       return;
     }
-  
+
     setLoading(true);
     setStatus("Verifying credentials...");
-  
+
     try {
       const res = await axios.post("http://localhost:3000/download", {
         id: fileId,
         password: password,
       });
-  
+
       // create hidden anchor
       const link = document.createElement("a");
       link.href = res.data.downloadUrl;
@@ -40,12 +41,18 @@ function Download() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-  
-      // NOW React still stays on page ✅
-      setStatus("✅ File delivered to browser!");
+
+      // NOW React still stays on page 
+      setStatus("File is Downloading!");
+      toast.success("Download started!");
     } catch (err) {
       console.error(err);
-      setStatus("❌ Incorrect ID, password, or file missing.");
+      setStatus(" Verification failed.");
+      if (err.response?.status === 429) {
+        toast.error("Bandwidth or Rate limit exceeded!");
+      } else {
+        toast.error("Incorrect ID, password, or file expired.");
+      }
     } finally {
       setLoading(false);
     }

@@ -24,7 +24,7 @@ route.post('/download', async (req, res) => {
     if (!file) return res.status(404).json({ message: "File not found" });
     const isValid = bcrypt.compareSync(password, file.password);
     if (!isValid) return res.status(401).json({ message: "Invalid password" });    
-    const originalFileName = file.filekey.split('-').slice(1).join('-');
+    const originalFileName = `${file.id.slice(0, 3)}_${file.filekey.split('_').slice(1).join('_')}`;
     const filesize = file.filesize;
     const { allowed } = await bandwidthLimiter(file.key, filesize);
     if (!allowed) {
